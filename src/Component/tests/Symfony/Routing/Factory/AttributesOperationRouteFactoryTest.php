@@ -1,0 +1,105 @@
+<?php
+
+/*
+ * This file is part of the Sylius package.
+ *
+ * (c) Sylius Sp. z o.o.
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace Sylius\Resource\Tests\Symfony\Routing\Factory;
+
+use PHPUnit\Framework\TestCase;
+use Sylius\Component\Resource\Tests\Dummy\DummyResourceWithOperations;
+use Sylius\Resource\Metadata\Create;
+use Sylius\Resource\Metadata\Index;
+use Sylius\Resource\Metadata\MetadataInterface;
+use Sylius\Resource\Metadata\RegistryInterface;
+use Sylius\Resource\Metadata\Resource\Factory\AttributesResourceMetadataCollectionFactory;
+use Sylius\Resource\Metadata\Show;
+use Sylius\Resource\Metadata\Update;
+use Sylius\Resource\Symfony\Routing\Factory\AttributesOperationRouteFactory;
+use Sylius\Resource\Symfony\Routing\Factory\OperationRouteFactory;
+use Sylius\Resource\Symfony\Routing\Factory\RouteName\OperationRouteNameFactory;
+use Sylius\Resource\Symfony\Routing\Factory\RoutePath\OperationRoutePathFactoryInterface;
+use Symfony\Component\Routing\RouteCollection;
+
+final class AttributesOperationRouteFactoryTest extends TestCase
+{
+    private RegistryInterface $resourceRegistry;
+
+    private OperationRoutePathFactoryInterface $routePathFactory;
+
+    private AttributesOperationRouteFactory $attributesOperationRouteFactory;
+
+    protected function setUp(): void
+    {
+        $this->resourceRegistry = $this->createMock(RegistryInterface::class);
+        $this->routePathFactory = $this->createMock(OperationRoutePathFactoryInterface::class);
+
+        $this->attributesOperationRouteFactory = new AttributesOperationRouteFactory(
+            $this->resourceRegistry,
+            new OperationRouteFactory($this->routePathFactory),
+            new AttributesResourceMetadataCollectionFactory(
+                $this->resourceRegistry,
+                new OperationRouteNameFactory(),
+                'symfony',
+            ),
+        );
+    }
+
+    public function testItIsInitializable(): void
+    {
+        $this->assertInstanceOf(AttributesOperationRouteFactory::class, $this->attributesOperationRouteFactory);
+    }
+
+    public function testItCreatesRoutesWithOperations(): void
+    {
+        $routeCollection = new RouteCollection();
+        $metadata = $this->createMock(MetadataInterface::class);
+
+        $metadata->method('getServiceId')->with('repository')->willReturn('app.repository.dummy');
+        $metadata->method('hasClass')->with('form')->willReturn(true);
+        $metadata->method('getClass')->willReturnMap([
+            ['form', 'App\Form'],
+            ['model', 'App\Dummy'],
+        ]);
+        $metadata->method('getApplicationName')->willReturn('app');
+        $metadata->method('getName')->willReturn('dummy');
+        $metadata->method('getPluralName')->willReturn('dummies');
+
+        $this->resourceRegistry->method('get')->with('app.dummy')->willReturn($metadata);
+
+        $this->routePathFactory
+            ->expects($this->exactly(4))
+            ->method('createRoutePath')
+            ->willReturnCallback(function ($operation, $path) {
+                if ($operation instanceof Index) {
+                    return '/dummies';
+                }
+                if ($operation instanceof Create) {
+                    return '/dummies/new';
+                }
+                if ($operation instanceof Update) {
+                    return '/dummies/{id}/edit';
+                }
+                if ($operation instanceof Show) {
+                    return '/dummies/{id}';
+                }
+
+                return $path;
+            });
+
+        $this->attributesOperationRouteFactory->createRouteForClass($routeCollection, DummyResourceWithOperations::class);
+
+        $this->assertCount(4, $routeCollection);
+        $this->assertNotNull($routeCollection->get('app_dummy_index'), 'Route "app_dummy_index" not found but it should.');
+        $this->assertNotNull($routeCollection->get('app_dummy_create'), 'Route "app_dummy_create" not found but it should.');
+        $this->assertNotNull($routeCollection->get('app_dummy_update'), 'Route "app_dummy_update" not found but it should.');
+        $this->assertNotNull($routeCollection->get('app_dummy_show'), 'Route "app_dummy_show" not found but it should.');
+    }
+}
